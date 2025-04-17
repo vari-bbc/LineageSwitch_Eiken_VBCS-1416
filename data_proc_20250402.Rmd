@@ -1,0 +1,292 @@
+---
+title: "Initial Data Processing"
+author: "Hannah Damico"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(table1)
+library(kableExtra)
+library(scales)
+```
+
+
+```{r message = F}
+dat <- read_csv("Lineage_switch_case_study_v2.csv")
+dat <- dat[,2:ncol(dat)]
+```
+
+```{r}
+# grab the study years
+dat$study_year <- unlist(str_extract_all(dat$Study, "(?<!\\d)\\d{4}"))
+dat$Study_Name <- sub("_.*", "\\1", dat$Study)
+dat <- dat %>%  relocate(Study, study_year, Study_Name)
+tab_dat <- dat[!colnames(dat) %in% c("Karyotype_at_diagnosis", "Karyotype_at_relapse", colnames(dat)[18:ncol(dat)])]
+
+```
+
+
+# {.tabset}
+
+## Raw Value tables
+
+```{r}
+lapply(tab_dat[2:ncol(tab_dat)], table)
+```
+
+## Cross Variable Average Age Tables
+
+```{r message = F}
+
+# colnames(tab_dat)
+# lapply(tab_dat, table)
+
+# what years do we hav information from?
+# table(tab_dat$study_year)
+# summary(tab_dat$Age_years)
+
+tab_dat %>% group_by(Study_Name) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) per Study") %>% kable_classic_2(full_width = F)
+
+tab_dat %>% filter(!is.na(MLLr)) %>% group_by(MLLr) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) per MLLr status") %>% kable_classic_2(full_width = F)
+
+tab_dat %>% filter(!is.na(MLLr)) %>% group_by(MLLr, Study_Name) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) per MLLr status, within a Study") %>% kable_classic_2(full_width = F)
+
+tab_dat %>% group_by(Fusion) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) per Fusion Type") %>% kable_classic_2(full_width = F)
+
+# tab_dat %>% filter(!is.na(MLLr)) %>% group_by(MLLr, Fusion) %>%  
+#   summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+#   arrange(Mean) %>% kbl(caption = "Average Age (years) per Fusion Type and MLLr status") %>% kable_classic_2(full_width = F)
+
+tab_dat  %>% group_by(diagnosis_before_LS) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) per Diagnosis before LS") %>% kable_classic_2(full_width = F)
+
+
+tab_dat %>% group_by(diagnosis_after_LS) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) per Diagnosis after LS") %>% kable_classic_2(full_width = F)
+
+
+# need to create new variable to say YN if LS
+tab_dat$diag_diff <- ifelse(tab_dat$diagnosis_before_LS  == tab_dat$diagnosis_after_LS , "No diff", "diff")
+
+# there's only one patient without a switch, this makes sense from what Alex said
+tab_dat %>% group_by(diag_diff) %>%  
+  summarise(Mean = mean(Age_years, na.rm = T)) %>% 
+  arrange(Mean) %>% kbl(caption = "Average Age (years) when LS diff vs. no diff") %>% kable_classic_2(full_width = F)
+
+
+```
+
+
+## Plots
+
+```{r warning= F, message = F}
+# create age group variable
+
+tab_dat <-
+  tab_dat %>%  mutate(
+    Age_Group = case_when(
+      Age_years == 0 ~ "Aged 0",
+      Age_years < 3 & Age_years != 0 ~ "Infants",
+      Age_years >= 3 |
+        Age_years < 18 ~ "Children/Adolescent",
+      Age_years >= 18 ~  "Adult",
+      is.na(Age_years) ~ "Age Missing"
+    )
+  ) %>% relocate(Age_Group)
+
+
+# tab_dat %>%  arrange(Age_years) %>%  relocate(Age_years)
+```
+
+
+```{r fig.width=10, warning= F, message = F}
+# Age
+tab_dat %>%  ggplot(aes(study_year, Age_years)) + 
+  geom_point() + 
+  labs(x = "Study Year") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# age group
+tab_dat %>% ggplot() + geom_bar(aes(Age_Group))
+```
+
+
+```{r fig.width=10}
+# sex
+tab_dat %>%  filter(!is.na(Sex)) %>%  ggplot() +
+  geom_bar(aes(Sex)) + theme_bw()
+
+# study year broken down by sex
+tab_dat %>%  filter(!is.na(Sex)) %>%  ggplot() +
+  geom_bar(aes(study_year, fill = factor(Sex)), position = "stack") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# MLLr broken down by Sex
+tab_dat %>%  filter(!is.na(Sex)) %>%  ggplot() +
+  geom_bar(aes(MLLr, fill = factor(Sex)), position = "dodge") +
+  theme_bw() 
+
+```
+
+
+```{r fig.width=10}
+
+tab_dat %>%  filter(!is.na(Sex)) %>%  ggplot() +
+  geom_bar(aes(study_year, fill = factor(Sex)), position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Fusion
+# 
+tab_dat %>% ggplot() +
+  geom_bar(aes(fct_infreq(Fusion))) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# diagnosis_before_LS (where LS = lineage switch)
+tab_dat %>% ggplot() +
+  geom_bar(aes(fct_infreq(diagnosis_before_LS))) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# diagnosis_after_LS (where LS = lineage switch)
+# 
+tab_dat %>% ggplot() +
+  geom_bar(aes(fct_infreq(diagnosis_after_LS))) +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Immunotherapy_YN → Immunotherapy_agent
+tab_dat %>% ggplot() +
+  geom_bar(aes(Immunotherapy_YN)) +
+  theme_bw() 
+
+# Immunotherapy_agent
+tab_dat %>% ggplot() +
+  geom_bar(aes(fct_infreq(Immunotherapy_agent))) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+## Percent Plots
+
+```{r}
+library(ggplot2)
+library(scales)
+
+ggplot(tab_dat, aes(x = Fusion, fill = MLLr)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(tab_dat, aes(x = diagnosis_before_LS, fill = MLLr)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(tab_dat, aes(x = diagnosis_after_LS, fill = MLLr)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+tab_dat %>% filter(!is.na(Immunotherapy_YN), !is.na(MLLr)) %>% 
+mutate(Immunotherapy_YN = ifelse(Immunotherapy_YN == "Y", "Yes", "No")) %>% 
+  ggplot(aes(x = Immunotherapy_YN, fill = MLLr)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw() + xlab("") + ggtitle("Patient Received Immunotherapy")
+
+
+tab_dat %>% filter(!is.na(MLLr)) %>% 
+  ggplot(aes(x = Immunotherapy_agent, fill = MLLr)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x = NULL) + ggtitle("Immunotherapy Agent")
+
+
+```
+
+
+## Percentage tables
+
+```{r}
+# Which % of patients have an MLL rearrangement?
+cat("MLLr Yes/No (in %):\n")
+round(prop.table(table(tab_dat$MLLr))*100, 3)
+
+# What % of these rearrangement patients have Fusions/what type of fusions?
+# need to make a new variable
+tab_dat$Fusion_YN <- ifelse(tab_dat$Fusion != "No fusion", "Yes Fusion", tab_dat$Fusion)
+cat("What % of these rearrangement patients have Fusions:\n")
+cat("In percent %:\n")
+round(prop.table(table(tab_dat$Fusion_YN[tab_dat$MLLr == "Y"], tab_dat$MLLr[tab_dat$MLLr == "Y"]))*100, 3)
+ 
+# shows the % of fusion type out of those who DID NOT HAVE an arrangment
+cat("MLLr UN/NOT arranged and Infusion type if applicable:\n")
+cat("In percent %:\n")
+round(prop.table(table(tab_dat$Fusion[tab_dat$MLLr == "N"], tab_dat$MLLr[tab_dat$MLLr == "N"]))*100, 3)
+
+# shows the % of fusion type out of those who had an arrangment
+cat("MLLr arranged + Infusion type:\n")
+cat("In percent %:\n")
+round(prop.table(table(tab_dat$Fusion[tab_dat$MLLr == "Y"], tab_dat$MLLr[tab_dat$MLLr == "Y"]))*100, 3)
+# this shows the % of that arrangement and fusion type out of ALL the options
+cat("MLLr Arrangement Status +  Infusion type:\n")
+cat("In percent %:\n")
+round(prop.table(table(tab_dat$Fusion, tab_dat$MLLr))*100, 3)
+
+```
+
+```{r}
+# % of diagnoses before LS and after LS
+cat("Percent Clients Before LS:\n")
+round(prop.table(table(tab_dat$diagnosis_before_LS)),3)*100
+
+cat("Percent Clients After LS:\n")
+round(prop.table(table(tab_dat$diagnosis_after_LS)),3)*100
+
+
+
+# Of those with or without MLLr, this is the % diagnosis with XYZ BEFORE LS
+cat("Percent Clients Before LS according to MLLr status:\n")
+round(prop.table(table(tab_dat$diagnosis_before_LS, tab_dat$MLLr)),3)*100
+
+# Of those with or without MLLr, this is the % diagnosis with XYZ after LS
+cat("Percent Clients After LS according to MLLr status:\n")
+round(prop.table(table(tab_dat$diagnosis_after_LS, tab_dat$MLLr)),3)*100
+
+
+```
+
+
+
+
+**Questions/Issues:**
+- We have some ages that are simply 0. Is this meant to imply less than 1 years old since this is age in years?
+
+
+
